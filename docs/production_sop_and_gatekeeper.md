@@ -39,6 +39,12 @@ expected_total = enabled_city_count × enabled_brand_count
 
 - 如当天只跑子集，必须由用户明确授权，并记录不是生产全量。
 
+地址候选配置：
+
+- `address_candidates` 优先于单个 `address_keyword`，但保留 `address_keyword` 作为兼容字段和默认首选候选。
+- 候选优先级建议：市中心大型商圈 / 地铁站；市政府 / 区政府；三甲医院 / 大学 / 大型公园；大型购物中心；派出所 / 公安局。
+- 同一城市候选地址应按稳定、可配送、便于人工复核排序。
+
 ## 2. 环境校验
 
 输入规范：
@@ -89,7 +95,7 @@ expected_total = enabled_city_count × enabled_brand_count
 
 升级 / 回退条件：
 
-- 点位失效时只替换该城市固定地址关键词。
+- 点位失效时优先补充或调整该城市 `address_candidates`，不要回退为单个不稳定地址硬跑。
 
 ## 4. 原始 H5 采集
 
@@ -104,21 +110,29 @@ expected_total = enabled_city_count × enabled_brand_count
 - `deliverables_h5/品牌/日期/城市/品牌（城市 日期）H5长图.png`
 - `debug/h5_pages/日期/品牌/城市/`
 - capture summary。
+- capture summary 必须记录 `target_city`、`address_keyword`、`address_candidates`、`attempted_address_candidates`、`selected_address_keyword`、`selected_address_text`、`address_candidate_status`、`address_page_confirmed`、`city_switch_verified`、`selected_city_verified`、`delivery_available`、`address_match_warning`。
 
 验收门禁：
 
 - 采集状态 success。
+- `selected_address_text` 非空。
+- `delivery_available=true`。
+- `city_switch_verified=true`。
 - 不是商品详情页。
 - 不是首页、活动页、空结果页。
+- 人工复核前必须确认人工手机使用的城市和收货地址，与脚本 summary 中记录的地址一致。
 
 不通过时怎么处理：
 
 - 只补跑失败样本。
 - 不覆盖其他城市/品牌。
+- 如果人工地址与脚本地址不一致，只能记录 `manual_review_address_mismatch_possible`，不能直接判定为漏 SKU 或误删。
+- 如果出现 `city_address_unavailable`、`address_delivery_unavailable`、`city_switch_unverified` 或 `selected_address_text_unavailable`，先修地址候选，不进入 cleaned。
 
 升级 / 回退条件：
 
 - 连续进入详情页或推荐页时，暂停该样本并进入 bug 闭环。
+- 所有候选地址都显示暂未开通、超出配送范围或无法配送时，该城市当天进入人工地址复核，不强行交付。
 
 ## 5. 失败补跑
 
@@ -162,6 +176,7 @@ expected_total = enabled_city_count × enabled_brand_count
 验收门禁：
 
 - batch summary 行数等于 expected_total。
+- 地址门禁已通过：所有城市 `selected_address_text` 非空、`delivery_available=true`、`city_switch_verified=true`。
 - 不允许 `delivery_grade=fail` 进入 cleaned。
 - `possible_missing_sku=0`。
 
@@ -217,8 +232,9 @@ expected_total = enabled_city_count × enabled_brand_count
 
 验收门禁：
 
-- 只处理 `delivery_grade=fixable`。
-- 不处理 pass。
+- 进入 cleaned 前必须先过地址门禁：`selected_address_text` 非空、`delivery_available=true`、`city_switch_verified=true`。
+- `delivery_grade=pass` 通过清洗门禁，表示原始 H5 已可用，无需 cleaned。
+- `delivery_grade=fixable` 通过清洗门禁，但必须生成 cleaned 且 quality pass。
 - 不处理 fail。
 - 不覆盖原始 `deliverables_h5/`。
 
@@ -303,6 +319,7 @@ expected_total = enabled_city_count × enabled_brand_count
 
 验收门禁：
 
+- 地址门禁通过。
 - overall_gate_result 必须为 pass。
 - 所有 gate 必须 pass。
 
@@ -320,28 +337,53 @@ expected_total = enabled_city_count × enabled_brand_count
 输入规范：
 
 - gatekeeper pass。
-- cleaned H5。
+- cleaned H5，来源必须在 `deliverables_h5_cleaned/`。
 - 用户明确授权发布。
+- 当前阶段只生成本地品牌 ZIP，不接飞书上传。
 
 输出规范：
 
-- `delivery_packages/日期/`
-- 按品牌整理子目录。
-- delivery manifest。
+- `delivery_packages/YYYY-MM-DD/by_brand/品牌巡价YYYY年M月D日.zip`
+- `delivery_packages/YYYY-MM-DD/manifest/delivery_manifest.csv`
+- `delivery_packages/YYYY-MM-DD/manifest/delivery_manifest.md`
+- `delivery_packages/YYYY-MM-DD/manifest/package_summary.json`
+
+执行命令：
+
+```bash
+python3 tools/package_daily_delivery.py --date YYYY-MM-DD
+```
+
+如需覆盖已存在的同日 ZIP，必须显式传入：
+
+```bash
+python3 tools/package_daily_delivery.py --date YYYY-MM-DD --overwrite-package
+```
+
+命名规范：
+
+- 品牌 ZIP：`品牌巡价YYYY年M月D日.zip`。
+- ZIP 内图片：`品牌-城市-YYYY.MM.DD.png`，城市名去掉“市”。
 
 验收门禁：
 
 - 数量符合 expected_total。
 - 不包含 fail。
 - 不包含 rerun_required。
+- 每个品牌 ZIP 内图片数量等于 enabled_city_count。
+- 总 manifest 行数等于 expected_total。
+- 不使用 `deliverables_h5/`、`screenshots_failed/`、`debug/` 或 reports 中间预览图作为交付源。
 
 不通过时怎么处理：
 
-- 删除或隔离错误包，回到 gatekeeper 前。
+- gatekeeper 不通过时不生成 ZIP，只记录 `blocked_by_gatekeeper`。
+- 缺失 cleaned 图时不生成对应品牌 ZIP，manifest 记录 `missing_cleaned_image`。
+- 回到 gatekeeper 前的失败环节修复，不手工拼包。
 
 升级 / 回退条件：
 
 - 发布动作必须可审计，不覆盖历史包。
+- 飞书云盘上传是下一阶段能力，本地 ZIP 通过后再接入。
 
 ## 13. 归档
 

@@ -7,7 +7,7 @@ import json
 import shutil
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +37,7 @@ class CityConfig:
     address_keyword: str
     enabled: bool
     note: str
+    address_candidates: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -334,6 +335,14 @@ def write_all_brands_summary(date_str: str, brands: list[BrandConfig]) -> tuple[
                     "brand": brand.brand,
                     "search_keyword": brand.search_keyword,
                     "city": "",
+                    "target_city": "",
+                    "address_keyword": "",
+                    "address_candidates": "",
+                    "attempted_address_candidates": "",
+                    "selected_address_keyword": "",
+                    "selected_address_text": "",
+                    "address_candidate_status": "",
+                    "delivery_available": "",
                     "status": "summary_missing",
                     "screenshot_path": "",
                     "failed_screenshot_path": "",
@@ -380,6 +389,13 @@ def write_all_brands_summary(date_str: str, brands: list[BrandConfig]) -> tuple[
                     "system_longshot_raw_path": "",
                     "system_longshot_trigger_method": "",
                     "failure_reason": "",
+                    "before_address_click_page_type": "",
+                    "after_address_click_page_type": "",
+                    "address_page_confirmed": "",
+                    "address_keyword_input_allowed": "",
+                    "city_switch_verified": "",
+                    "selected_city_verified": "",
+                    "address_match_warning": "",
                     "skipped": "false",
                 }
             )
@@ -397,6 +413,14 @@ def write_all_brands_summary(date_str: str, brands: list[BrandConfig]) -> tuple[
         "brand",
         "search_keyword",
         "city",
+        "target_city",
+        "address_keyword",
+        "address_candidates",
+        "attempted_address_candidates",
+        "selected_address_keyword",
+        "selected_address_text",
+        "address_candidate_status",
+        "delivery_available",
         "status",
         "screenshot_path",
         "failed_screenshot_path",
@@ -463,6 +487,13 @@ def write_all_brands_summary(date_str: str, brands: list[BrandConfig]) -> tuple[
         "recommendation_detect_confidence",
         "recommendation_detect_shot_index",
         "bottom_detection_method",
+        "before_address_click_page_type",
+        "after_address_click_page_type",
+        "address_page_confirmed",
+        "address_keyword_input_allowed",
+        "city_switch_verified",
+        "selected_city_verified",
+        "address_match_warning",
         "skipped",
     ]
     with csv_path.open("w", encoding="utf-8-sig", newline="") as f:

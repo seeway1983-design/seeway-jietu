@@ -136,6 +136,11 @@
         "y": 0.82
       },
       {
+        "name": "coupon_center_close",
+        "x": 0.50,
+        "y": 0.64
+      },
+      {
         "name": "campaign_bottom_center_x",
         "x": 0.50,
         "y": 0.75

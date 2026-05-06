@@ -37,6 +37,7 @@ Mac 主控
 - cleaned H5 输出到 `deliverables_h5_cleaned/`，是通过清洗和质检后的交付候选。
 - reports 是审计、排查和门禁依据。
 - delivery package 是发布动作，只有 gatekeeper 通过后才允许生成。
+- 地址门禁是 cleaned、gatekeeper 和交付包之前的硬门槛：所有城市必须有非空 `selected_address_text`、`delivery_available=true`、`city_switch_verified=true`。
 
 ## 当前暂停路线
 
@@ -96,6 +97,7 @@ pupu_price_mvp/
 
 - cleaned H5 输出目录。
 - 只包含 `delivery_grade=fixable` 且 rebuilt 图存在的样本。
+- `delivery_grade=pass` 表示原始 H5 已可用，无需进入 cleaned 重建。
 - 是交付候选，不等于已经发布。
 
 `delivery_packages/`
@@ -109,14 +111,15 @@ pupu_price_mvp/
 2. 启动 Appium：`bash tools/start_appium_server.sh`。
 3. 环境校验：`python3 run_mvp.py --doctor`。
 4. 采集 H5：按目标日期、城市、品牌执行采集。
-5. 失败补跑：只补跑失败样本，不盲目全量重采。
-6. 全量离线分析：刷新 `_batch_summary.csv/json`。
-7. bug 闭环：一处 bug 一处验证，先单样本，后回归样本。
-8. cleaned 重建：只处理 `delivery_grade=fixable`。
-9. cleaned 质检：检查文件、路径、数量、尺寸、状态。
-10. rerun_required 检查：必须为空。
-11. gatekeeper 总门禁：所有 gate 通过才允许进入发布动作。
-12. 交付包生成：用户明确确认后再执行。
+5. 地址门禁：所有城市 `selected_address_text` 非空、`delivery_available=true`、`city_switch_verified=true`。
+6. 失败补跑：只补跑失败样本，不盲目全量重采。
+7. 全量离线分析：刷新 `_batch_summary.csv/json`。
+8. bug 闭环：一处 bug 一处验证，先单样本，后回归样本。
+9. cleaned 重建：只处理 `delivery_grade=fixable`；`delivery_grade=pass` 视为无需清洗。
+10. cleaned 质检：检查文件、路径、数量、尺寸、状态。
+11. rerun_required 检查：必须为空。
+12. gatekeeper 总门禁：所有 gate 通过才允许进入发布动作。
+13. 交付包生成：用户明确确认后再执行。
 
 ## 常用命令
 
@@ -168,6 +171,39 @@ cleaned 重建：
 python3 tools/h5_delivery_postprocess.py --date 2026-05-04 --generate-cleaned
 ```
 
+本地品牌 ZIP 打包：
+
+```bash
+python3 tools/package_daily_delivery.py --date 2026-05-04
+```
+
+默认不覆盖已有 ZIP；如需重新生成同日品牌 ZIP：
+
+```bash
+python3 tools/package_daily_delivery.py --date 2026-05-04 --overwrite-package
+```
+
+本地 ZIP 打包只允许在 gatekeeper 通过后执行。交付源只允许来自 `deliverables_h5_cleaned/`，不使用原始 `deliverables_h5/`、失败截图、debug 图或中间预览图。
+
+输出目录：
+
+```text
+delivery_packages/YYYY-MM-DD/
+  by_brand/
+    品牌巡价YYYY年M月D日.zip
+  manifest/
+    delivery_manifest.csv
+    delivery_manifest.md
+    package_summary.json
+```
+
+ZIP 命名规则：
+
+- 品牌 ZIP：`品牌巡价YYYY年M月D日.zip`，例如 `卫龙巡价2026年5月4日.zip`。
+- ZIP 内图片：`品牌-城市-YYYY.MM.DD.png`，城市名去掉“市”，例如 `卫龙-福州-2026.05.04.png`。
+
+当前尚未接飞书上传，下一步才是飞书云盘上传。
+
 ## gatekeeper 门禁说明
 
 gatekeeper 是交付包前的总门禁。数量必须动态计算：
@@ -179,6 +215,13 @@ expected_total = enabled_city_count × enabled_brand_count
 ```
 
 不能写死城市数、品牌数或总数。
+
+gatekeeper 之前必须先过地址门禁：
+
+- 所有 enabled 城市都必须有非空 `selected_address_text`。
+- 所有 enabled 城市都必须 `delivery_available=true`。
+- 所有 enabled 城市都必须 `city_switch_verified=true`。
+- 任一城市不满足时，禁止进入 cleaned、gatekeeper 和交付包。
 
 gatekeeper 必须确认：
 
@@ -196,6 +239,7 @@ gatekeeper 必须确认：
 ## 失败时应该看哪里
 
 - 采集失败：看 `reports/YYYY-MM-DD/*_capture_summary.csv/json` 和 `screenshots_failed/`。
+- 人工复核 SKU 差异：先看 capture summary 里的 `target_city`、`address_keyword`、`address_candidates`、`attempted_address_candidates`、`selected_address_keyword`、`selected_address_text`、`delivery_available`、`address_match_warning`，确认人工手机使用的是同城同收货地址。
 - H5 分页问题：看 `debug/h5_pages/YYYY-MM-DD/品牌/城市/`。
 - 离线分析问题：看 `reports/YYYY-MM-DD/h5_cleaning/品牌/城市.json`、`.csv`、`.md` 和 `page_xx/card_xx.png`。
 - cleaned 输出问题：看 `_cleaned_manifest.csv`。
@@ -205,6 +249,8 @@ gatekeeper 必须确认：
 
 ## 新人不要做什么
 
+- 不要在人工手机地址与脚本固定地址不一致时，直接判定“脚本漏 SKU”或“清洗误删”；朴朴会按具体收货地址/前置仓展示 SKU、价格、活动和库存。
+- 不要在 `selected_address_text` 为空、`delivery_available` 非 true、`city_switch_verified` 非 true 时进入 cleaned、gatekeeper 或交付。
 - 不要回到电脑微信小程序路线。
 - 不要回到 Mac 模拟器路线。
 - 不要继续 native-longshot 自动化，除非换手机后重新验证。

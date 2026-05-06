@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -48,6 +48,7 @@ class CityConfig:
     address_keyword: str
     enabled: bool
     note: str
+    address_candidates: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -470,6 +471,162 @@ def page_text_blob(driver: webdriver.Remote) -> str:
     return "\n".join(unique_texts(driver))
 
 
+ADDRESS_PAGE_TOKENS = [
+    "选择收货地址",
+    "请输入你的收货地址",
+    "新增收货地址",
+    "当前定位",
+    "地图选点",
+    "收货地址",
+    "搜索地址",
+]
+
+PRODUCT_SEARCH_TOKENS = [
+    "搜索历史",
+    "猜你想搜",
+    "热门搜索",
+    "大家都在搜",
+    "综合",
+    "销量",
+    "价格",
+    "折扣",
+]
+
+PRODUCT_DETAIL_TOKENS = [
+    "商品详情",
+    "加入购物车",
+    "立即购买",
+    "立即抢",
+]
+
+KITCHEN_TOKENS = [
+    "朴朴厨房",
+    "厨房",
+]
+
+HOME_CATEGORY_TOKENS = [
+    "时令好物",
+    "水果鲜花",
+    "蔬菜豆制品",
+    "肉禽蛋",
+    "海鲜水产",
+    "粮油调味",
+]
+
+HOME_NAV_TOKENS = ["首页", "分类", "购物车", "我的"]
+
+
+def token_hits(texts: list[str], tokens: list[str]) -> list[str]:
+    blob = "\n".join(texts)
+    return [token for token in tokens if token in blob]
+
+
+def classify_page_type(driver: webdriver.Remote) -> str:
+    texts = unique_texts(driver)
+    address_hits = token_hits(texts, ADDRESS_PAGE_TOKENS)
+    product_search_hits = token_hits(texts, PRODUCT_SEARCH_TOKENS)
+    detail_hits = token_hits(texts, PRODUCT_DETAIL_TOKENS)
+    kitchen_hits = token_hits(texts, KITCHEN_TOKENS)
+    home_nav_hits = token_hits(texts, HOME_NAV_TOKENS)
+    category_hits = token_hits(texts, HOME_CATEGORY_TOKENS)
+    has_input = find_search_input(driver) is not None
+
+    if address_hits:
+        return "address_selector"
+    if kitchen_hits:
+        return "wrong_business_flow"
+    if detail_hits:
+        return "product_detail"
+    if "取消" in texts and has_input:
+        return "product_search"
+    if "综合" in texts and ("销量" in texts or "价格" in texts or "折扣" in texts):
+        return "search_result"
+    if product_search_hits and has_input:
+        return "product_search"
+    if len(home_nav_hits) >= 3 and category_hits and not product_search_hits and not detail_hits:
+        return "home"
+    return "unknown"
+
+
+def is_product_search_like(driver: webdriver.Remote) -> bool:
+    return classify_page_type(driver) in {"product_search", "search_result", "product_detail", "wrong_business_flow"}
+
+
+def update_address_diagnostics(profile: dict[str, Any], **items: Any) -> None:
+    diagnostics = profile.get("_address_diagnostics")
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+    for key, value in items.items():
+        diagnostics[key] = str(value).lower() if isinstance(value, bool) else str(value)
+    profile["_address_diagnostics"] = diagnostics
+
+
+def address_diagnostics(profile: dict[str, Any]) -> dict[str, str]:
+    diagnostics = profile.get("_address_diagnostics")
+    return dict(diagnostics) if isinstance(diagnostics, dict) else {}
+
+
+def json_list_value(items: list[str]) -> str:
+    return json.dumps(items, ensure_ascii=False)
+
+
+def city_address_candidates(city: CityConfig) -> list[str]:
+    candidates: list[str] = []
+    for item in [city.address_keyword, *city.address_candidates]:
+        value = str(item or "").strip()
+        if value and value not in candidates:
+            candidates.append(value)
+    return candidates
+
+
+DELIVERY_UNAVAILABLE_TOKENS = [
+    "暂未开通",
+    "暂不支持配送",
+    "当前地址无法配送",
+    "当前地址暂不支持配送",
+    "超出配送范围",
+    "无法送达",
+    "无法配送",
+    "换个地址试试",
+    "未开通服务",
+]
+
+
+def delivery_unavailable_detected(driver: webdriver.Remote) -> tuple[bool, str]:
+    blob = "\n".join(unique_texts(driver))
+    for token in DELIVERY_UNAVAILABLE_TOKENS:
+        if token in blob:
+            return True, token
+    return False, ""
+
+
+def selected_city_verified_from_texts(texts: list[str], city: CityConfig) -> bool:
+    blob = "\n".join(texts)
+    return bool((city.city and city.city in blob) or (city.city_alias and city.city_alias in blob))
+
+
+def read_selected_address_text(driver: webdriver.Remote, city: CityConfig, selected_keyword: str = "") -> tuple[str, str]:
+    texts = [text.strip() for text in unique_texts(driver) if text.strip()]
+    candidates: list[str] = []
+    keyword = selected_keyword or city.address_keyword
+    for text in texts:
+        compact = text.replace(" ", "")
+        if not compact:
+            continue
+        if keyword and keyword in compact:
+            candidates.append(text)
+            continue
+        if city.city_alias and city.city_alias in compact and len(compact) >= 3:
+            candidates.append(text)
+            continue
+        if city.city and city.city in compact and len(compact) >= 3:
+            candidates.append(text)
+    if candidates:
+        candidates.sort(key=lambda item: (0 if keyword and keyword in item else 1, len(item)))
+        return candidates[0], ""
+    return "", "selected_address_text_unavailable"
+
+
 def click_xpath_if_exists(driver: webdriver.Remote, xpath: str) -> bool:
     els = driver.find_elements(By.XPATH, xpath)
     if els:
@@ -699,25 +856,36 @@ def ensure_clean_page(
 
 
 def focus_address_input(driver: webdriver.Remote, profile: dict[str, Any], serial: str) -> None:
+    if not address_selector_ready(driver):
+        update_address_diagnostics(profile, address_page_confirmed=False, address_keyword_input_allowed=False)
+        raise CaptureFailure("address_page_not_confirmed", "地址输入前未确认进入收货地址页")
+    if is_product_search_like(driver):
+        update_address_diagnostics(profile, address_keyword_input_allowed=False)
+        raise CaptureFailure("address_keyword_misroute_prevented", "检测到商品搜索/详情/厨房页面，禁止输入地址关键词")
+
     click_xpath_if_exists(driver, "//*[@text='请输入你的收货地址']")
 
     def address_input_ready() -> bool:
         texts = unique_texts(driver)
-        return find_search_input(driver) is not None or "取消" in texts or "搜索" in texts
+        return address_selector_ready(driver) and (find_search_input(driver) is not None or "搜索地址" in texts)
 
     if wait_until(address_input_ready, 1.2, 0.3):
+        update_address_diagnostics(profile, address_keyword_input_allowed=True)
         return
 
     x, y = profile_point(profile, "address_input_focus")
     adb_tap(serial, x, y)
     if wait_until(address_input_ready, 2.5, 0.3):
+        update_address_diagnostics(profile, address_keyword_input_allowed=True)
         return
-    wait(0.8)
+    update_address_diagnostics(profile, address_keyword_input_allowed=False)
+    raise CaptureFailure("address_page_not_confirmed", "未找到地址页输入框")
 
 
 def address_selector_ready(driver: webdriver.Remote) -> bool:
     texts = unique_texts(driver)
-    return "选择收货地址" in texts and ("请输入你的收货地址" in texts or "地图选点" in texts)
+    hits = token_hits(texts, ADDRESS_PAGE_TOKENS)
+    return bool(hits) and not is_product_search_like(driver)
 
 
 def open_city_list(driver: webdriver.Remote) -> bool:
@@ -733,7 +901,23 @@ def select_city(driver: webdriver.Remote, city_name: str) -> None:
     wait(1.8)
 
 
+def city_switch_verified(driver: webdriver.Remote, city: CityConfig, selected_keyword: str = "") -> bool:
+    texts = unique_texts(driver)
+    blob = "\n".join(texts)
+    keyword = selected_keyword or city.address_keyword
+    candidates = [
+        city.city,
+        city.city_alias,
+        keyword,
+        keyword[:4],
+        keyword[:3],
+    ]
+    return any(candidate and candidate in blob for candidate in candidates)
+
+
 def input_keyword(driver: webdriver.Remote, keyword: str) -> None:
+    if is_product_search_like(driver) or not address_selector_ready(driver):
+        raise CaptureFailure("address_keyword_misroute_prevented", "地址关键词输入前检测到非地址页")
     try:
         el = driver.find_element(By.XPATH, "//*[@class='android.widget.EditText']")
         el.click()
@@ -741,6 +925,11 @@ def input_keyword(driver: webdriver.Remote, keyword: str) -> None:
             el.clear()
         except WebDriverException:
             pass
+        for _ in range(18):
+            try:
+                el.send_keys("\ue003")
+            except WebDriverException:
+                break
         el.send_keys(keyword)
     except WebDriverException:
         driver.set_clipboard_text(keyword)
@@ -756,14 +945,7 @@ def pick_address_result_by_index(serial: str, profile: dict[str, Any], index: in
 
 
 def homepage_ready(driver: webdriver.Remote) -> bool:
-    texts = unique_texts(driver)
-    home_nav_hits = sum(1 for token in ["首页", "分类", "购物车", "我的"] if token in texts)
-    category_hits = sum(
-        1
-        for token in ["时令好物", "水果鲜花", "蔬菜豆制品", "肉禽蛋", "海鲜水产", "粮油调味"]
-        if token in texts
-    )
-    return home_nav_hits >= 2 or category_hits >= 2
+    return classify_page_type(driver) == "home"
 
 
 def go_home(
@@ -798,15 +980,45 @@ def go_home(
 
 
 def open_address_selector(
+    driver: webdriver.Remote,
     serial: str,
     profile: dict[str, Any],
     logger: RunLogger,
     city: str,
 ) -> None:
-    x, y = profile_point(profile, "home_location_entry")
-    adb_tap(serial, x, y)
-    logger.log(city, "address", f"tap address entry at ({x},{y})")
-    wait(2)
+    before_type = classify_page_type(driver)
+    update_address_diagnostics(profile, before_address_click_page_type=before_type)
+    if before_type != "home":
+        raise CaptureFailure("wrong_business_flow", f"地址入口点击前不是首页: {before_type}")
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        x, y = profile_point(profile, "home_location_entry")
+        adb_tap(serial, x, y)
+        logger.log(city, "address", f"tap address entry at ({x},{y}), attempt={attempt}")
+        wait_until(
+            lambda: address_selector_ready(driver) or is_product_search_like(driver),
+            10 if profile.get("_fast") else 12,
+            0.5,
+        )
+        after_type = classify_page_type(driver)
+        confirmed = address_selector_ready(driver)
+        update_address_diagnostics(
+            profile,
+            after_address_click_page_type=after_type,
+            address_page_confirmed=confirmed,
+        )
+        logger.log(city, "address", f"after address click page_type={after_type}, confirmed={confirmed}")
+        if confirmed:
+            return
+        if is_product_search_like(driver):
+            raise CaptureFailure("address_keyword_misroute_prevented", f"地址入口误入非地址页: {after_type}")
+        if attempt < max_attempts:
+            adb_back(serial)
+            wait(1.2)
+            if not homepage_ready(driver):
+                raise CaptureFailure("address_page_not_confirmed", f"点击地址入口后未进入地址选择页且无法回首页: {after_type}")
+            logger.log(city, "address", "address page not confirmed, returned home for retry")
+    raise CaptureFailure("address_page_not_confirmed", f"点击地址入口后未进入地址选择页: {after_type}")
 
 
 def open_search(
@@ -2472,11 +2684,21 @@ def normalize_summary_row(
     step_timings = rounded_timings(result.get("step_timings") if isinstance(result.get("step_timings"), dict) else {})
     slowest_step, slowest_seconds = slowest_step_from_timings(step_timings)
     duration_seconds = (finish_dt - start_dt).total_seconds()
+    result_city = result.get("city", "")
+    city_config = next((city for city in load_cities() if city.city == result_city), None)
     return {
         "date": date_str,
         "brand": brand.brand,
         "search_keyword": brand.search_keyword,
-        "city": result.get("city", ""),
+        "city": result_city,
+        "target_city": result.get("target_city", result_city),
+        "address_keyword": result.get("address_keyword", city_config.address_keyword if city_config else ""),
+        "address_candidates": result.get("address_candidates", json_list_value(city_address_candidates(city_config)) if city_config else ""),
+        "attempted_address_candidates": result.get("attempted_address_candidates", ""),
+        "selected_address_keyword": result.get("selected_address_keyword", ""),
+        "selected_address_text": result.get("selected_address_text", ""),
+        "address_candidate_status": result.get("address_candidate_status", ""),
+        "delivery_available": result.get("delivery_available", ""),
         "status": result.get("status", ""),
         "screenshot_path": result.get("archive", ""),
         "failed_screenshot_path": result.get("failed_screenshot", ""),
@@ -2543,6 +2765,13 @@ def normalize_summary_row(
         "recommendation_detect_confidence": result.get("recommendation_detect_confidence", ""),
         "recommendation_detect_shot_index": result.get("recommendation_detect_shot_index", ""),
         "bottom_detection_method": result.get("bottom_detection_method", ""),
+        "before_address_click_page_type": result.get("before_address_click_page_type", ""),
+        "after_address_click_page_type": result.get("after_address_click_page_type", ""),
+        "address_page_confirmed": result.get("address_page_confirmed", ""),
+        "address_keyword_input_allowed": result.get("address_keyword_input_allowed", ""),
+        "city_switch_verified": result.get("city_switch_verified", ""),
+        "selected_city_verified": result.get("selected_city_verified", ""),
+        "address_match_warning": result.get("address_match_warning", ""),
         "skipped": result.get("skipped", "false"),
     }
 
@@ -2555,6 +2784,14 @@ def write_summary_reports(rows: list[dict[str, str]], date_str: str, brand: Bran
         "brand",
         "search_keyword",
         "city",
+        "target_city",
+        "address_keyword",
+        "address_candidates",
+        "attempted_address_candidates",
+        "selected_address_keyword",
+        "selected_address_text",
+        "address_candidate_status",
+        "delivery_available",
         "status",
         "screenshot_path",
         "failed_screenshot_path",
@@ -2621,6 +2858,13 @@ def write_summary_reports(rows: list[dict[str, str]], date_str: str, brand: Bran
         "recommendation_detect_confidence",
         "recommendation_detect_shot_index",
         "bottom_detection_method",
+        "before_address_click_page_type",
+        "after_address_click_page_type",
+        "address_page_confirmed",
+        "address_keyword_input_allowed",
+        "city_switch_verified",
+        "selected_city_verified",
+        "address_match_warning",
         "skipped",
     ]
     with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
@@ -2686,25 +2930,116 @@ def choose_stable_address(
     city: CityConfig,
     logger: RunLogger,
 ) -> None:
-    max_candidates = int(profile.get("max_address_candidates", 5))
-    for index in range(max_candidates):
+    candidates = city_address_candidates(city)
+    update_address_diagnostics(
+        profile,
+        target_city=city.city,
+        address_keyword=city.address_keyword,
+        address_candidates=json_list_value(candidates),
+        attempted_address_candidates=json_list_value([]),
+        selected_address_keyword="",
+        selected_address_text="",
+        address_candidate_status="pending",
+        before_address_click_page_type="",
+        after_address_click_page_type="",
+        address_page_confirmed=False,
+        address_keyword_input_allowed=False,
+        city_switch_verified=False,
+        selected_city_verified=False,
+        delivery_available=False,
+        address_match_warning="",
+    )
+    max_candidates = int(profile.get("max_address_candidates", len(candidates) or 1))
+    attempted_candidates: list[str] = []
+    failed_reasons: list[str] = []
+    for index, keyword in enumerate(candidates[:max_candidates]):
+        attempted_candidates.append(keyword)
+        update_address_diagnostics(
+            profile,
+            address_keyword=keyword,
+            attempted_address_candidates=json_list_value(attempted_candidates),
+            selected_address_keyword="",
+            selected_address_text="",
+            address_candidate_status="trying",
+            delivery_available=False,
+            address_match_warning="",
+        )
         ensure_clean_page(driver, serial, profile, logger, city.city, f"address.start_{index+1}")
         if not address_selector_ready(driver):
-            open_address_selector(serial, profile, logger, city.city)
+            open_address_selector(driver, serial, profile, logger, city.city)
         focus_address_input(driver, profile, serial)
         if open_city_list(driver):
             select_city(driver, city.city)
         else:
-            logger.log(city.city, "address", "city list entry not visible; search address directly")
-        input_keyword(driver, city.address_keyword)
-        pick_address_result_by_index(serial, profile, index)
-        wait_until(lambda: homepage_ready(driver), 8 if profile.get("_fast") else 10, 0.5)
+            logger.log(city.city, "address", "city list entry not visible; address page confirmed, search configured address")
+        input_keyword(driver, keyword)
+        pick_address_result_by_index(serial, profile, 0)
+        wait_until(
+            lambda: homepage_ready(driver) or delivery_unavailable_detected(driver)[0],
+            8 if profile.get("_fast") else 10,
+            0.5,
+        )
+        unavailable, unavailable_token = delivery_unavailable_detected(driver)
+        if unavailable:
+            failed_reasons.append(f"{keyword}:delivery_unavailable:{unavailable_token}")
+            update_address_diagnostics(
+                profile,
+                address_candidate_status="address_delivery_unavailable",
+                address_match_warning=f"address_delivery_unavailable:{unavailable_token}",
+            )
+            logger.log(city.city, "address", f"candidate={keyword} delivery unavailable: {unavailable_token}")
+            try:
+                go_home(driver, serial, profile, logger, city.city)
+            except Exception:
+                adb_back(serial)
+                wait(1.0)
+            continue
         ensure_clean_page(driver, serial, profile, logger, city.city, f"address.selected_{index+1}")
         go_home(driver, serial, profile, logger, city.city)
-        if homepage_ready(driver):
-            logger.log(city.city, "address", f"selected stable address candidate index={index}")
+        selected_address_text, address_match_warning = read_selected_address_text(driver, city, keyword)
+        selected_city_verified = selected_city_verified_from_texts(unique_texts(driver), city)
+        verified = homepage_ready(driver) and city_switch_verified(driver, city, keyword)
+        delivery_available = not delivery_unavailable_detected(driver)[0]
+        if verified and not selected_address_text:
+            failed_reasons.append(f"{keyword}:selected_address_text_unavailable")
+            address_match_warning = address_match_warning or "selected_address_text_unavailable"
+        elif not verified:
+            failed_reasons.append(f"{keyword}:city_switch_unverified")
+            address_match_warning = address_match_warning or "city_switch_unverified"
+        elif not delivery_available:
+            failed_reasons.append(f"{keyword}:delivery_unavailable")
+            address_match_warning = address_match_warning or "address_delivery_unavailable"
+        update_address_diagnostics(
+            profile,
+            selected_address_keyword=keyword if verified and selected_address_text and delivery_available else "",
+            selected_address_text=selected_address_text,
+            address_match_warning=address_match_warning,
+            address_candidate_status="success" if verified and selected_address_text and delivery_available else "address_candidate_failed",
+            selected_city_verified=selected_city_verified,
+            city_switch_verified=verified,
+            delivery_available=delivery_available,
+        )
+        logger.log(
+            city.city,
+            "address",
+            f"candidate={keyword}, city_switch_verified={verified}, selected_city_verified={selected_city_verified}, "
+            f"delivery_available={delivery_available}, "
+            f"selected_address_text={selected_address_text or '<unavailable>'}, "
+            f"address_match_warning={address_match_warning or '<none>'}",
+        )
+        if verified and selected_address_text and delivery_available:
+            logger.log(city.city, "address", f"selected stable address candidate={keyword}")
             return
-    raise CaptureFailure("city_failed", f"{city.city} 未找到可继续执行搜索的有效点位")
+    update_address_diagnostics(
+        profile,
+        address_candidate_status="city_address_unavailable",
+        address_match_warning=";".join(failed_reasons) or "city_address_unavailable",
+        delivery_available=False,
+    )
+    raise CaptureFailure(
+        "city_address_unavailable",
+        f"{city.city} 所有地址候选均未通过: {'; '.join(failed_reasons) or 'no_candidate_available'}",
+    )
 
 
 def run_one_capture(
@@ -2738,23 +3073,27 @@ def run_one_capture(
         except CaptureFailure as exc:
             failed_path = save_failed_screenshot(serial, city, brand, date_str, exc.status, logger)
             logger.log(city.city, "failure", f"status={exc.status}, reason={exc.reason}")
-            return {
+            result = {
                 "city": city.city,
                 "status": exc.status,
                 "reason": exc.reason,
                 "failed_screenshot": str(failed_path),
             }
+            result.update(address_diagnostics(profile))
+            return result
         except (SessionBroken, WebDriverException) as exc:
             last_error = str(exc)
             if not isinstance(exc, SessionBroken) and not is_session_error(exc):
                 failed_path = save_failed_screenshot(serial, city, brand, date_str, "app_failed", logger)
                 logger.log(city.city, "failure", f"status=app_failed, reason={exc}")
-                return {
+                result = {
                     "city": city.city,
                     "status": "app_failed",
                     "reason": str(exc),
                     "failed_screenshot": str(failed_path),
                 }
+                result.update(address_diagnostics(profile))
+                return result
             logger.log(city.city, "session", f"session health check failed: {last_error}")
             safe_driver_quit(driver)
             if restart_round >= max_restarts:
@@ -2769,23 +3108,27 @@ def run_one_capture(
         except Exception as exc:
             failed_path = save_failed_screenshot(serial, city, brand, date_str, "app_failed", logger)
             logger.log(city.city, "failure", f"status=app_failed, reason={exc}")
-            return {
+            result = {
                 "city": city.city,
                 "status": "app_failed",
                 "reason": str(exc),
                 "failed_screenshot": str(failed_path),
             }
+            result.update(address_diagnostics(profile))
+            return result
         finally:
             safe_driver_quit(driver)
 
     failed_path = save_failed_screenshot(serial, city, brand, date_str, "app_failed", logger)
     logger.log(city.city, "failure", f"status=app_failed, reason=session restore failed: {last_error}")
-    return {
+    result = {
         "city": city.city,
         "status": "app_failed",
         "reason": f"session restore failed: {last_error}",
         "failed_screenshot": str(failed_path),
     }
+    result.update(address_diagnostics(profile))
+    return result
 
 
 def execute_capture_flow(
@@ -2974,6 +3317,7 @@ def execute_brand_search_flow(
         }
         result.update({key: str(value) for key, value in artifact.metadata.items() if key != "warning"})
         result.update(h5_extra)
+        result.update(address_diagnostics(profile))
         return result
     except WebDriverException as exc:
         if is_session_error(exc):
@@ -2990,15 +3334,19 @@ def city_failure_result(
     reason: str,
     logger: RunLogger,
     step_timings: StepTimings | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     failed_path = save_failed_screenshot(serial, city, brand, date_str, status, logger)
-    return {
+    result = {
         "city": city.city,
         "status": status,
         "reason": reason,
         "failed_screenshot": str(failed_path),
         "step_timings": rounded_timings(step_timings),
     }
+    if profile is not None:
+        result.update(address_diagnostics(profile))
+    return result
 
 
 def run_city_first_capture(
@@ -3090,6 +3438,7 @@ def run_city_first_capture(
                             exc.reason,
                             logger,
                             city_timings,
+                            profile,
                         )
                         logger.log(city.city, "failure", f"brand={brand.brand}, status={exc.status}, reason={exc.reason}")
                     except (SessionBroken, WebDriverException) as exc:
@@ -3104,6 +3453,7 @@ def run_city_first_capture(
                                 str(exc),
                                 logger,
                                 city_timings,
+                                profile,
                             )
                             logger.log(city.city, "failure", f"brand={brand.brand}, status=app_failed, reason={exc}")
                         else:
@@ -3117,6 +3467,7 @@ def run_city_first_capture(
                                 f"session broken during city-first brand capture: {last_error}",
                                 logger,
                                 city_timings,
+                                profile,
                             )
                             rows_by_brand[brand.brand].append(
                                 normalize_summary_row(
@@ -3143,6 +3494,7 @@ def run_city_first_capture(
                                     f"session broken before brand capture: {last_error}",
                                     logger,
                                     city_timings,
+                                    profile,
                                 )
                                 rows_by_brand[remaining_brand.brand].append(
                                     normalize_summary_row(
@@ -3169,6 +3521,7 @@ def run_city_first_capture(
                             str(exc),
                             logger,
                             city_timings,
+                            profile,
                         )
                         logger.log(city.city, "failure", f"brand={brand.brand}, status=app_failed, reason={exc}")
                     else:
@@ -3208,7 +3561,7 @@ def run_city_first_capture(
                 break
             except CaptureFailure as exc:
                 for brand, started_at in pending:
-                    result = city_failure_result(serial, city, brand, date_str, exc.status, exc.reason, logger)
+                    result = city_failure_result(serial, city, brand, date_str, exc.status, exc.reason, logger, profile=profile)
                     rows_by_brand[brand.brand].append(
                         normalize_summary_row(
                             result,
@@ -3229,7 +3582,7 @@ def run_city_first_capture(
                 last_error = str(exc)
                 if not isinstance(exc, SessionBroken) and not is_session_error(exc):
                     for brand, started_at in pending:
-                        result = city_failure_result(serial, city, brand, date_str, "app_failed", str(exc), logger)
+                        result = city_failure_result(serial, city, brand, date_str, "app_failed", str(exc), logger, profile=profile)
                         rows_by_brand[brand.brand].append(
                             normalize_summary_row(
                                 result,
@@ -3257,6 +3610,7 @@ def run_city_first_capture(
                             "app_failed",
                             f"session restore failed: {last_error}",
                             logger,
+                            profile=profile,
                         )
                         rows_by_brand[brand.brand].append(
                             normalize_summary_row(
@@ -3277,7 +3631,7 @@ def run_city_first_capture(
                 continue
             except Exception as exc:
                 for brand, started_at in pending:
-                    result = city_failure_result(serial, city, brand, date_str, "app_failed", str(exc), logger)
+                    result = city_failure_result(serial, city, brand, date_str, "app_failed", str(exc), logger, profile=profile)
                     rows_by_brand[brand.brand].append(
                         normalize_summary_row(
                             result,

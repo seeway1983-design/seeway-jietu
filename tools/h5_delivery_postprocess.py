@@ -62,6 +62,10 @@ class CardCandidate:
     is_valid_sku: bool
     exclusion_reason: str
     is_recommendation_zone_card: bool
+    action_button_type: str
+    has_purchase_action: bool
+    promo_purchase_card: bool
+    complete_reason: str
     warnings: list[str]
 
 
@@ -174,6 +178,32 @@ def extract_price(texts: list[str]) -> str:
     return ""
 
 
+def extract_promo_purchase_price(texts: list[str]) -> str:
+    compact_texts = [text.replace(" ", "") for text in texts if text]
+    for text in compact_texts:
+        if "抢购价" not in text:
+            continue
+        match = PRICE_RE.search(text)
+        if match:
+            return match.group(1)
+        match = re.search(r"抢购价[?？:：]?\s*([0-9]+(?:\.[0-9]+)?)", text)
+        if match:
+            return match.group(1)
+    for index, text in enumerate(compact_texts):
+        if "抢购价" not in text:
+            continue
+        # OCR often splits "抢购价" and the current price into adjacent lines,
+        # while the crossed original price still carries a ¥ sign. Prefer the
+        # nearby standalone decimal before the label/button.
+        for nearby in reversed(compact_texts[max(0, index - 4) : index]):
+            if any(token in nearby for token in ["回购", "已抢", "约", "包", "g", "G", "ml", "ML", "折"]):
+                continue
+            match = re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", nearby)
+            if match:
+                return match.group(0)
+    return ""
+
+
 def enhance_for_ocr(img: Image.Image, scale: int = 2) -> Image.Image:
     gray = img.convert("L")
     arr = np.asarray(gray, dtype=np.uint8)
@@ -263,6 +293,17 @@ def detect_recommendation_section_y(ocr_items: list[dict[str, Any]]) -> int | No
     return min(candidates) if candidates else None
 
 
+ACTION_BUTTON_PRIORITY = {
+    "immediate_buy": 70,
+    "choose_spec": 60,
+    "limited_offer": 50,
+    "sale_price": 45,
+    "sold_progress": 40,
+    "plus_button": 30,
+    "unknown": 0,
+}
+
+
 def detect_add_button_anchors(img: Image.Image) -> list[tuple[int, int]]:
     arr = np.asarray(img.convert("RGB"))
     mask = (arr[:, :, 1] > 170) & (arr[:, :, 0] < 120) & (arr[:, :, 2] < 140)
@@ -296,6 +337,129 @@ def detect_add_button_anchors(img: Image.Image) -> list[tuple[int, int]]:
             deduped[-1] = (int((prev_x + x) / 2), int((prev_y + y) / 2))
         else:
             deduped.append((x, y))
+    return deduped
+
+
+def classify_purchase_action_from_texts(texts: list[str]) -> str:
+    compact = "".join(text.replace(" ", "") for text in texts if text)
+    if any(token in compact for token in ["立即抢", "马上抢"]):
+        return "immediate_buy"
+    if "选规格" in compact:
+        return "choose_spec"
+    if "限时抢" in compact:
+        return "limited_offer"
+    if "抢购价" in compact or "加入购物车" in compact:
+        return "sale_price"
+    if "已抢" in compact:
+        return "sold_progress"
+    return "unknown"
+
+
+def detect_text_purchase_action_anchors(
+    page_ocr_items: list[dict[str, Any]],
+    width: int,
+) -> list[dict[str, Any]]:
+    anchors: list[dict[str, Any]] = []
+    right_action_tokens = [
+        ("立即抢", "immediate_buy"),
+        ("马上抢", "immediate_buy"),
+        ("选规格", "choose_spec"),
+        ("加入购物车", "sale_price"),
+    ]
+    for item in page_ocr_items:
+        text = str(item.get("text", "")).replace(" ", "")
+        if not text:
+            continue
+        action_type = ""
+        for token, candidate_type in right_action_tokens:
+            if token in text:
+                action_type = candidate_type
+                break
+        if not action_type:
+            continue
+        box = item.get("bbox", [])
+        xs = [float(point[0]) for point in box if isinstance(point, (list, tuple)) and len(point) >= 2]
+        ys = [float(point[1]) for point in box if isinstance(point, (list, tuple)) and len(point) >= 2]
+        if not xs or not ys:
+            continue
+        if max(xs) < width * 0.66:
+            continue
+        anchors.append(
+            {
+                "center": (int(sum(xs) / len(xs)), int(sum(ys) / len(ys))),
+                "action_button_type": action_type,
+            }
+        )
+    return anchors
+
+
+def detect_red_purchase_button_anchors(img: Image.Image) -> list[dict[str, Any]]:
+    arr = np.asarray(img.convert("RGB"))
+    height, width = arr.shape[:2]
+    right_region_x = int(width * 0.66)
+    # Capture red pill-shaped purchase buttons on the right. Price text is
+    # usually left of this region, so this avoids promoting normal prices to anchors.
+    mask = (
+        (arr[:, :, 0] > 205)
+        & (arr[:, :, 1] < 105)
+        & (arr[:, :, 2] < 125)
+        & (np.arange(width)[None, :] > right_region_x)
+    )
+    ys, xs = np.where(mask)
+    if len(xs) == 0:
+        return []
+    points = sorted(zip(xs.tolist(), ys.tolist()), key=lambda item: (item[1], item[0]))
+    clusters: list[list[tuple[int, int]]] = []
+    for x, y in points:
+        for cluster in reversed(clusters[-8:]):
+            prev_x, prev_y = cluster[-1]
+            if abs(y - prev_y) <= 28 and abs(x - prev_x) <= 96:
+                cluster.append((x, y))
+                break
+        else:
+            clusters.append([(x, y)])
+    anchors: list[dict[str, Any]] = []
+    for cluster in clusters:
+        if len(cluster) < 80:
+            continue
+        xs_local = [point[0] for point in cluster]
+        ys_local = [point[1] for point in cluster]
+        if max(xs_local) - min(xs_local) < 60 or max(ys_local) - min(ys_local) < 26:
+            continue
+        anchors.append(
+            {
+                "center": (int(sum(xs_local) / len(xs_local)), int(sum(ys_local) / len(ys_local))),
+                "action_button_type": "immediate_buy",
+            }
+        )
+    return anchors
+
+
+def detect_purchase_action_anchors(
+    img: Image.Image,
+    page_ocr_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    anchors: list[dict[str, Any]] = [
+        {"center": anchor, "action_button_type": "plus_button"}
+        for anchor in detect_add_button_anchors(img)
+    ]
+    anchors.extend(detect_text_purchase_action_anchors(page_ocr_items, img.width))
+    anchors.extend(detect_red_purchase_button_anchors(img))
+    anchors.sort(key=lambda item: item["center"][1])
+    deduped: list[dict[str, Any]] = []
+    for anchor in anchors:
+        x, y = anchor["center"]
+        if deduped and abs(y - deduped[-1]["center"][1]) < 96:
+            prev = deduped[-1]
+            prev_type = str(prev.get("action_button_type", "unknown"))
+            current_type = str(anchor.get("action_button_type", "unknown"))
+            if ACTION_BUTTON_PRIORITY[current_type] > ACTION_BUTTON_PRIORITY[prev_type]:
+                deduped[-1] = anchor
+            else:
+                prev_x, prev_y = prev["center"]
+                prev["center"] = (int((prev_x + x) / 2), int((prev_y + y) / 2))
+        else:
+            deduped.append(anchor)
     return deduped
 
 
@@ -493,7 +657,7 @@ def score_card_completeness(
     page_height: int,
     has_title: bool,
     has_price: bool,
-    has_add_button: bool,
+    has_purchase_action: bool,
     is_valid_sku: bool,
     exclusion_reason: str,
     weak_identity: bool,
@@ -511,10 +675,10 @@ def score_card_completeness(
         score += 20
     else:
         reasons.append("price_missing")
-    if has_add_button:
+    if has_purchase_action:
         score += 15
     else:
-        reasons.append("add_button_missing")
+        reasons.append("purchase_action_missing")
     if bbox[1] > 12:
         score += 12
     else:
@@ -523,7 +687,18 @@ def score_card_completeness(
         score += 12
     else:
         reasons.append("bottom_truncated")
-    if median_height > 0 and height < median_height * 0.72:
+    compact_but_actionable = (
+        median_height > 0
+        and height >= median_height * 0.65
+        and has_title
+        and has_price
+        and has_purchase_action
+        and bbox[1] > 12
+        and bbox[3] < page_height - 12
+        and is_valid_sku
+        and not trimmed_bottom_ui
+    )
+    if median_height > 0 and height < median_height * 0.72 and not compact_but_actionable:
         reasons.append("height_too_short")
     else:
         score += 8
@@ -538,6 +713,8 @@ def score_card_completeness(
         score += 4
     else:
         reasons.append(exclusion_reason or "invalid_sku")
+    if compact_but_actionable:
+        reasons.append("compact_complete_card")
     score = max(0, min(100, score))
     is_complete = score >= 78 and not any(
         reason in reasons
@@ -612,9 +789,10 @@ def analyze_page(
         if page_ocr_warning:
             warnings.append(f"page_{page_ocr_warning}")
         recommendation_section_y = detect_recommendation_section_y(page_ocr_items)
-        anchors = detect_add_button_anchors(rgb)
+        action_anchors = detect_purchase_action_anchors(rgb, page_ocr_items)
+        anchors = [item["center"] for item in action_anchors]
         if not anchors:
-            return [], ["no_add_button_anchor_detected"]
+            return [], ["no_purchase_action_anchor_detected"]
         anchor_bboxes: list[list[int]] = []
         for anchor_index, anchor in enumerate(anchors, start=1):
             prev_anchor_y = anchors[anchor_index - 2][1] if anchor_index > 1 else None
@@ -653,9 +831,28 @@ def analyze_page(
             lines = sort_ocr_lines(ocr_items)
             texts = [str(item["text"]).strip() for item in lines if str(item["text"]).strip()]
             confidences = [float(item["confidence"]) for item in lines if str(item["text"]).strip()]
+            anchor_action_type = str(action_anchors[card_index - 1].get("action_button_type", "unknown"))
+            ocr_action_type = classify_purchase_action_from_texts(texts)
+            action_button_type = (
+                ocr_action_type
+                if ACTION_BUTTON_PRIORITY[ocr_action_type] >= ACTION_BUTTON_PRIORITY[anchor_action_type]
+                else anchor_action_type
+            )
+            has_purchase_action = action_button_type != "unknown"
+            promo_purchase_card = action_button_type in {
+                "immediate_buy",
+                "limited_offer",
+                "sale_price",
+                "choose_spec",
+                "sold_progress",
+            }
             title_text = build_title_text(texts, brand_hint)
             price_text = extract_price(texts)
             price_source = "full_card_ocr" if price_text else ""
+            promo_price = extract_promo_purchase_price(texts) if promo_purchase_card else ""
+            if promo_price:
+                price_text = promo_price
+                price_source = "promo_purchase_price_ocr"
             if not price_text:
                 fallback_price, fallback_source = extract_price_from_crop(crop)
                 if fallback_price:
@@ -705,6 +902,8 @@ def analyze_page(
                 card_warnings.append(f"excluded:{exclusion_reason}")
             if brand_text_missing_but_main_result_kept:
                 card_warnings.append("brand_text_missing_but_main_result_kept")
+            if promo_purchase_card:
+                card_warnings.append(f"promo_purchase_card:{action_button_type}")
             if trimmed_bottom_ui:
                 card_warnings.append("bottom_ui_trimmed")
             if trimmed_top_y:
@@ -715,7 +914,7 @@ def analyze_page(
                 page_height=img.height,
                 has_title=has_title,
                 has_price=has_price,
-                has_add_button=True,
+                has_purchase_action=has_purchase_action,
                 is_valid_sku=is_valid_sku,
                 exclusion_reason=exclusion_reason,
                 weak_identity=brand_text_missing,
@@ -723,6 +922,11 @@ def analyze_page(
                 median_height=median_height,
             )
             is_complete = is_complete_card
+            complete_reason = ""
+            if is_complete_card:
+                complete_reason = "title_price_purchase_action"
+                if promo_purchase_card:
+                    complete_reason = f"{complete_reason};promo_purchase_card"
             candidate = CardCandidate(
                 card_id=f"p{page_index:02d}_c{card_index:02d}",
                 page_index=page_index,
@@ -765,6 +969,10 @@ def analyze_page(
                 is_valid_sku=is_valid_sku,
                 exclusion_reason=exclusion_reason,
                 is_recommendation_zone_card=exclusion_reason == "recommendation_section",
+                action_button_type=action_button_type,
+                has_purchase_action=has_purchase_action,
+                promo_purchase_card=promo_purchase_card,
+                complete_reason=complete_reason,
                 warnings=card_warnings,
             )
             candidates.append(candidate)
@@ -824,6 +1032,8 @@ def is_overlap_fragment_duplicate(left: CardCandidate, right: CardCandidate) -> 
     same_price = bool(left.price_text and left.price_text == right.price_text)
     similar_image = hamming_distance(left.image_hash, right.image_hash) <= 14
     if same_title and similar_image:
+        return True
+    if contains_title and similar_image and left.normalized_spec == right.normalized_spec:
         return True
     if contains_title and same_price:
         return True
@@ -1147,12 +1357,65 @@ def analyze_sample(
     return payload
 
 
+ADDRESS_METADATA_FIELDS = [
+    "target_city",
+    "address_keyword",
+    "address_candidates",
+    "attempted_address_candidates",
+    "selected_address_keyword",
+    "selected_address_text",
+    "address_candidate_status",
+    "address_page_confirmed",
+    "city_switch_verified",
+    "selected_city_verified",
+    "delivery_available",
+    "address_match_warning",
+]
+
+
+def load_capture_address_metadata(date_str: str, brand: str, city: str) -> dict[str, str]:
+    candidate_paths = [
+        REPORTS_DIR / date_str / f"{brand}_capture_summary.json",
+        REPORTS_DIR / date_str / "all_brands_capture_summary.json",
+    ]
+    for path in candidate_paths:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, list):
+            continue
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            if row.get("brand") == brand and row.get("city") == city:
+                return {field: str(row.get(field, "")) for field in ADDRESS_METADATA_FIELDS}
+    return {
+        "target_city": city,
+        "address_keyword": "",
+        "address_candidates": "",
+        "attempted_address_candidates": "",
+        "selected_address_keyword": "",
+        "selected_address_text": "",
+        "address_candidate_status": "",
+        "address_page_confirmed": "",
+        "city_switch_verified": "",
+        "selected_city_verified": "",
+        "delivery_available": "",
+        "address_match_warning": "capture_address_metadata_unavailable",
+    }
+
+
 def batch_summary_row(payload: dict[str, Any]) -> dict[str, Any]:
     summary = payload["summary"]
+    address_metadata = load_capture_address_metadata(payload["date"], payload["brand"], payload["city"])
     return {
         "date": payload["date"],
         "brand": payload["brand"],
         "city": payload["city"],
+        **address_metadata,
         "delivery_grade": summary["delivery_grade"],
         "source_h5_path": payload.get("source_h5_path", ""),
         "rebuilt_image_path": payload.get("rebuilt_preview_path", ""),
@@ -1176,6 +1439,7 @@ def write_batch_summary(date_str: str, rows: list[dict[str, Any]]) -> tuple[Path
         "date",
         "brand",
         "city",
+        *ADDRESS_METADATA_FIELDS,
         "delivery_grade",
         "source_h5_path",
         "rebuilt_image_path",
@@ -1260,6 +1524,10 @@ def write_csv(cards: list[CardCandidate], csv_path: Path) -> None:
         "brand_text_missing",
         "brand_text_missing_but_main_result_kept",
         "product_type_hint",
+        "action_button_type",
+        "has_purchase_action",
+        "promo_purchase_card",
+        "complete_reason",
         "is_valid_sku",
         "exclusion_reason",
         "is_recommendation_zone_card",
@@ -1465,6 +1733,13 @@ def cleaned_manifest_row(row: dict[str, Any]) -> dict[str, Any]:
         "date": date_str,
         "brand": brand,
         "city": city,
+        "target_city": row.get("target_city", city),
+        "address_keyword": row.get("address_keyword", ""),
+        "selected_address_text": row.get("selected_address_text", ""),
+        "address_page_confirmed": row.get("address_page_confirmed", ""),
+        "city_switch_verified": row.get("city_switch_verified", ""),
+        "selected_city_verified": row.get("selected_city_verified", ""),
+        "address_match_warning": row.get("address_match_warning", ""),
         "delivery_grade": row.get("delivery_grade", ""),
         "source_h5_path": row.get("source_h5_path") or str(source_h5_path_for(date_str, brand, city)),
         "rebuilt_image_path": row.get("rebuilt_image_path", ""),
@@ -1492,6 +1767,7 @@ def write_cleaned_manifest(date_str: str, rows: list[dict[str, Any]]) -> tuple[P
         "date",
         "brand",
         "city",
+        *ADDRESS_METADATA_FIELDS,
         "delivery_grade",
         "source_h5_path",
         "rebuilt_image_path",
@@ -1535,12 +1811,13 @@ def write_cleaned_manifest(date_str: str, rows: list[dict[str, Any]]) -> tuple[P
     else:
         lines.append("- 无")
     lines.extend(["", "## 明细", ""])
-    lines.append("| date | brand | city | grade | status | warning | output |")
-    lines.append("|---|---|---|---|---|---|---|")
+    lines.append("| date | brand | city | address_keyword | selected_address_text | address_warning | grade | status | warning | output |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for row in rows:
         lines.append(
-            f"| {row['date']} | {row['brand']} | {row['city']} | {row['delivery_grade']} | "
-            f"{row['status']} | {row['warning'] or '-'} | {row['cleaned_output_path']} |"
+            f"| {row['date']} | {row['brand']} | {row['city']} | {row.get('address_keyword') or '-'} | "
+            f"{row.get('selected_address_text') or '-'} | {row.get('address_match_warning') or '-'} | "
+            f"{row['delivery_grade']} | {row['status']} | {row['warning'] or '-'} | {row['cleaned_output_path']} |"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return csv_path, md_path
@@ -1553,6 +1830,17 @@ def generate_cleaned_outputs(date_str: str) -> dict[str, Any]:
         if row.get("delivery_grade") != "fixable":
             continue
         manifest_row = cleaned_manifest_row(row)
+        address_gate_ok = (
+            str(row.get("address_page_confirmed", "")).lower() == "true"
+            and str(row.get("city_switch_verified", "")).lower() == "true"
+            and str(row.get("delivery_available", "")).lower() == "true"
+            and bool(str(row.get("selected_address_text", "")).strip())
+        )
+        if not address_gate_ok:
+            manifest_row["status"] = "failed"
+            manifest_row["warning"] = "address_gate_failed"
+            manifest_rows.append(manifest_row)
+            continue
         rebuilt_path = Path(str(manifest_row["rebuilt_image_path"]))
         output_path = Path(str(manifest_row["cleaned_output_path"]))
         if not rebuilt_path.exists():

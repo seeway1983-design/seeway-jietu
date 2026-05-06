@@ -55,6 +55,7 @@ cleaned H5：
 - 是离线清洗后的交付候选。
 - 基于高重叠分页截图和卡片级分析重建。
 - 只来源于 `delivery_grade=fixable` 且 rebuilt 存在的样本。
+- `delivery_grade=pass` 不生成 cleaned，表示原始 H5 已通过清洗门禁。
 
 ## reports 的作用
 

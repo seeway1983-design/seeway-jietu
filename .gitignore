@@ -45,6 +45,7 @@ exports/
 debug/
 tmp/
 tmp_review/
+review_samples/
 native_longshots/
 deliverables_h5/
 deliverables_h5_cleaned/
