@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "strategy": "accessibility_or_xpath_first",
+  "target_flow": [
+    "open_app",
+    "switch_city_or_address",
+    "search_keyword",
+    "capture_result_page"
+  ],
+  "selectors": {
+    "address_entry": "",
+    "city_search_box": "",
+    "city_result_item": "",
+    "search_box": "",
+    "search_submit": "",
+    "result_anchor": ""
+  },
+  "notes": "当前为安卓 MVP 占位配置。等模拟器和目标 App 确定后再填真实控件定位。"
+}

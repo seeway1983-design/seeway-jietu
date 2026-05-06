@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "calibrated": true,
+  "description": "首次运行可通过 --calibrate 重新标定。后续运行优先读取该文件。",
+  "points": {
+    "city_entry": {
+      "x": 443,
+      "y": 57
+    },
+    "city_search_input": {
+      "x": 252,
+      "y": 129
+    },
+    "city_first_result": {
+      "x": 262,
+      "y": 257
+    },
+    "search_entry": {
+      "x": 320,
+      "y": 129
+    },
+    "search_input": {
+      "x": 297,
+      "y": 69
+    },
+    "search_result_anchor": {
+      "x": 350,
+      "y": 280
+    }
+  },
+  "capture_region": null,
+  "timing": {
+    "pre_click_pause": 0.4,
+    "post_click_pause": 1.0,
+    "city_switch_wait": 2.5,
+    "search_wait": 3.0
+  }
+}

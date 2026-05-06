@@ -1,0 +1,9 @@
+{
+  "platformName": "Android",
+  "appium:automationName": "UiAutomator2",
+  "appium:deviceName": "MuMuPlayer",
+  "appium:newCommandTimeout": 120,
+  "appium:noReset": true,
+  "appium:uiautomator2ServerInstallTimeout": 120000,
+  "notes": "如果接入真实朴朴 App，后续补 appPackage / appActivity。"
+}

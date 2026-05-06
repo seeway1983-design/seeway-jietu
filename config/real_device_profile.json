@@ -1,0 +1,315 @@
+{
+  "device_name": "Android Device Example",
+  "screen_width": 1080,
+  "screen_height": 2400,
+  "template_notice": "Git 仓库模板配置。请复制为 config/real_device_profile.local.json 后，按实际真机分辨率和点击坐标校准。",
+  "home_location_entry": {
+    "x": 860,
+    "y": 140
+  },
+  "address_input_focus": {
+    "x": 360,
+    "y": 250
+  },
+  "address_first_result": {
+    "x": 340,
+    "y": 360
+  },
+  "address_result_step_y": 170,
+  "max_address_candidates": 5,
+  "store_home_search_icon_bounds": {
+    "x_min": 820,
+    "x_max": 900,
+    "y_min": 96,
+    "y_max": 136,
+    "width_min": 100,
+    "width_max": 150
+  },
+  "search_input_focus": {
+    "x": 240,
+    "y": 138
+  },
+  "search_clear": {
+    "x": 850,
+    "y": 138
+  },
+  "search_submit": {
+    "x": 945,
+    "y": 140
+  },
+  "popup_close_texts": [
+    "关闭",
+    "我知道了",
+    "稍后再说",
+    "取消",
+    "跳过",
+    "以后再说",
+    "暂不领取",
+    "暂不开启",
+    "暂不使用"
+  ],
+  "popup_blocking_texts": [
+    "天降福利",
+    "新人礼包",
+    "优惠券",
+    "立即领取",
+    "领取",
+    "去使用",
+    "母亲节预售神券"
+  ],
+  "popup_close_points": [
+    {
+      "name": "top_right_close",
+      "x_ratio": 0.92,
+      "y_ratio": 0.08
+    },
+    {
+      "name": "popup_top_right_close",
+      "x_ratio": 0.86,
+      "y_ratio": 0.22
+    },
+    {
+      "name": "bottom_cancel",
+      "x_ratio": 0.50,
+      "y_ratio": 0.82
+    },
+    {
+      "name": "center_close_badge",
+      "x_ratio": 0.50,
+      "y_ratio": 0.84
+    }
+  ],
+  "popup": {
+    "blocking_texts": [
+      "天降福利",
+      "母亲节预售神券",
+      "去使用",
+      "立即领取",
+      "领取",
+      "优惠券",
+      "神券",
+      "新人礼包",
+      "限时",
+      "活动"
+    ],
+    "close_texts": [
+      "关闭",
+      "跳过",
+      "稍后再说",
+      "暂不领取",
+      "我知道了",
+      "取消",
+      "不用了",
+      "以后再说"
+    ],
+    "close_descriptions": [
+      "close",
+      "Close",
+      "关闭",
+      "x",
+      "X"
+    ],
+    "close_points_ratio": [
+      {
+        "name": "top_right_global",
+        "x": 0.92,
+        "y": 0.08
+      },
+      {
+        "name": "popup_right_upper_1",
+        "x": 0.88,
+        "y": 0.18
+      },
+      {
+        "name": "popup_right_upper_2",
+        "x": 0.90,
+        "y": 0.22
+      },
+      {
+        "name": "popup_right_upper_3",
+        "x": 0.84,
+        "y": 0.25
+      },
+      {
+        "name": "bottom_cancel_area",
+        "x": 0.50,
+        "y": 0.82
+      },
+      {
+        "name": "campaign_bottom_center_x",
+        "x": 0.50,
+        "y": 0.75
+      },
+      {
+        "name": "blank_left_top",
+        "x": 0.08,
+        "y": 0.12
+      }
+    ],
+    "max_dismiss_rounds": 5,
+    "use_back_key": true,
+    "avoid_click_texts": [
+      "去使用",
+      "立即领取",
+      "领取"
+    ]
+  },
+  "session": {
+    "max_restarts": 2,
+    "app_launch_wait_sec": 6,
+    "restart_wait_sec": 2
+  },
+  "search_submit_point": {
+    "x_ratio": 0.9,
+    "y_ratio": 0.07
+  },
+  "keyboard_search_submit_point": {
+    "x_ratio": 0.92,
+    "y_ratio": 0.92
+  },
+  "native_longshot": {
+    "longshot_button_texts": [
+      "截长屏",
+      "长截图",
+      "滚动截图",
+      "长截屏",
+      "截长图"
+    ],
+    "overlay_scan_rounds": 2,
+    "fallback_longshot_points": [
+      {
+        "name": "miui_preview_longshot_button",
+        "x_ratio": 0.84,
+        "y_ratio": 0.34
+      },
+      {
+        "name": "miui_preview_longshot_button_low",
+        "x_ratio": 0.84,
+        "y_ratio": 0.36
+      },
+      {
+        "name": "miui_preview_longshot_button_high",
+        "x_ratio": 0.84,
+        "y_ratio": 0.32
+      }
+    ],
+    "wait_after_start_seconds": 45
+  },
+  "screenshot": {
+    "default_mode": "pages",
+    "pages": {
+      "enabled": true,
+      "scroll_ratio": 0.4,
+      "overlap_ratio": 0.6,
+      "max_pages": 25,
+      "stop_on_recommendation": true,
+      "keep_recommendation_viewport": true,
+      "transition_validation": true,
+      "transition_retry": 2,
+      "generate_h5": true,
+      "h5_separator_height": 44
+    },
+    "h5": {
+      "enabled": true,
+      "scroll_ratio": 0.35,
+      "overlap_ratio": 0.65,
+      "max_pages": 30,
+      "stop_on_recommendation": true,
+      "keep_recommendation_viewport": true,
+      "remove_duplicate_overlap": true,
+      "overlap_removal_method": "opencv_template",
+      "overlap_match_threshold": 0.42,
+      "overlap_template_top": 360,
+      "overlap_template_height": 760,
+      "overlap_search_top_ratio": 0.25,
+      "overlap_search_bottom_ratio": 0.95,
+      "min_append_height_ratio": 0.18,
+      "fallback_overlap_crop_ratio": 0.52,
+      "align_by_card_boundary": true,
+      "reduce_floating_widgets": true,
+      "floating_widget_after_first_page": true,
+      "transition_validation": true,
+      "h5_separator_height": 28,
+      "subsequent_page_top_crop": 400,
+      "subsequent_page_top_crop_mode": "card_boundary"
+    },
+    "longshot": {
+      "enabled": true,
+      "max_shots": 40,
+      "stop_only_when_bottom_reached": true,
+      "save_only_one_final_image": true,
+      "save_only_complete_longshot_to_official": true,
+      "incomplete_goes_to_failed": true,
+      "allow_recommendation_crop": true,
+      "crop_fail_keep_full_longshot": true,
+      "recommendation_stop_mode": "keep_current_viewport",
+      "crop_recommendation_section": false,
+      "allow_recommendation_in_last_viewport": true,
+      "min_safe_crop_height_ratio": 1.2,
+      "bottom_stable_rounds": 2,
+      "bottom_texts": [
+        "没有更多了",
+        "已经到底了",
+        "到底了",
+        "暂无更多",
+        "没有更多商品"
+      ],
+      "local_ocr": {
+        "enabled": true,
+        "min_confidence": 0.75,
+        "chunk_height": 3600,
+        "chunk_overlap": 320
+      },
+      "template_matching": {
+        "enabled": true,
+        "template_dir": "assets/templates",
+        "min_confidence": 0.8
+      },
+      "recommendation_texts": [
+        "猜你喜欢",
+        "相关推荐",
+        "热销推荐",
+        "你可能还喜欢",
+        "为你推荐",
+        "推荐商品",
+        "更多推荐",
+        "大家都在买"
+      ]
+    },
+    "force_top_before_capture": true,
+    "recommendation_texts_as_warning": [
+      "猜你喜欢",
+      "相关推荐",
+      "热销推荐",
+      "你可能还喜欢",
+      "为你推荐"
+    ],
+    "do_not_crop_recommendation_area": false,
+    "longshot_stop_texts": [
+      "猜你喜欢",
+      "相关推荐",
+      "热销推荐",
+      "你可能还喜欢",
+      "为你推荐",
+      "推荐商品",
+      "更多推荐",
+      "大家都在买"
+    ],
+    "longshot_stop_crop_margin": 24,
+    "longshot_min_stop_crop_height": 520
+  },
+  "longshot": {
+    "max_shots": 40,
+    "pause_sec": 1.4,
+    "swipe_x": 540,
+    "swipe_start_y": 1880,
+    "swipe_end_y": 720,
+    "swipe_duration_ms": 260,
+    "content_top": 300,
+    "content_bottom": 2180,
+    "min_overlap": 500,
+    "max_overlap": 1400,
+    "overlap_step": 10,
+    "identity_threshold": 3.0
+  }
+}

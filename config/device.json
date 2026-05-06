@@ -1,0 +1,13 @@
+{
+  "platform": "android",
+  "automation_stack": "appium_uiautomator2",
+  "provider": "real_android_device",
+  "adb_serial": "",
+  "appium_server_url": "http://127.0.0.1:4723",
+  "screen_width": 1080,
+  "screen_height": 2248,
+  "orientation": "portrait",
+  "target_app": "pupu_app",
+  "target_mode": "daily_brand_city_longshot",
+  "notes": "Git 仓库模板配置。请在 config/device.local.json 中填写实际 adb_serial，并按本机环境调整。"
+}

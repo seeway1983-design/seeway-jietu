@@ -1,0 +1,60 @@
+.DS_Store
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local environment and secrets
+.env
+.env.*
+*.local
+config/*.local.json
+
+# Build and archives
+build/
+dist/
+*.egg-info/
+*.zip
+*.tar
+*.gz
+
+# Runtime artifacts
+logs/
+output/
+reports/
+screenshots/
+screenshots_failed/
+screenshots_pages/
+exports/
+debug/
+tmp/
+tmp_review/
+native_longshots/
+deliverables_h5/
+deliverables_h5_cleaned/
+delivery_packages/
+handoff.md
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~

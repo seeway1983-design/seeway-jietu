@@ -1,0 +1,22 @@
+[
+  {
+    "brand": "卫龙",
+    "search_keyword": "卫龙",
+    "enabled": true
+  },
+  {
+    "brand": "必品阁",
+    "search_keyword": "必品阁",
+    "enabled": true
+  },
+  {
+    "brand": "哈根达斯",
+    "search_keyword": "哈根达斯",
+    "enabled": true
+  },
+  {
+    "brand": "雪花",
+    "search_keyword": "雪花啤酒",
+    "enabled": true
+  }
+]

@@ -1,0 +1,79 @@
+[
+  {
+    "city": "福州市",
+    "city_alias": "福州",
+    "address_keyword": "万科里购物中心",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "厦门市",
+    "city_alias": "厦门",
+    "address_keyword": "万象城",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "深圳市",
+    "city_alias": "深圳",
+    "address_keyword": "万象天地",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "广州市",
+    "city_alias": "广州",
+    "address_keyword": "珠江新城",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "成都市",
+    "city_alias": "成都",
+    "address_keyword": "春熙路",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "东莞市",
+    "city_alias": "东莞",
+    "address_keyword": "国贸中心",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "佛山市",
+    "city_alias": "佛山",
+    "address_keyword": "南海万科广场",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "莆田市",
+    "city_alias": "莆田",
+    "address_keyword": "正荣时代广场",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "泉州市",
+    "city_alias": "泉州",
+    "address_keyword": "浦西万达广场",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "武汉市",
+    "city_alias": "武汉",
+    "address_keyword": "楚河汉街",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  },
+  {
+    "city": "漳州市",
+    "city_alias": "漳州",
+    "address_keyword": "万达广场",
+    "enabled": true,
+    "note": "固定地址关键词优先，便于每日复跑；如该点位失效，再替换为同城其他可配送商圈"
+  }
+]

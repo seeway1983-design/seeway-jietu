@@ -1,0 +1,13 @@
+{
+  "platform": "android",
+  "automation_stack": "appium_uiautomator2",
+  "provider": "mumu_windows",
+  "adb_serial": "",
+  "appium_server_url": "http://127.0.0.1:4723",
+  "screen_width": 1080,
+  "screen_height": 1920,
+  "orientation": "portrait",
+  "target_app": "pupu_app",
+  "target_mode": "pilot_one_city_one_brand",
+  "notes": "Windows + MuMu 模板配置。请复制为本地私有配置后，按实际 adb serial 覆盖。"
+}

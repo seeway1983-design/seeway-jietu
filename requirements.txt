@@ -1,0 +1,4 @@
+appium-python-client>=4,<6
+numpy>=1.26,<3
+Pillow>=10,<12
+selenium>=4.20,<5

@@ -1,0 +1,8 @@
+{
+  "platformName": "Android",
+  "appium:automationName": "UiAutomator2",
+  "appium:deviceName": "Android Emulator",
+  "appium:newCommandTimeout": 120,
+  "appium:noReset": true,
+  "notes": "接入真实模拟器后，请补充 appPackage / appActivity 或实际微信/朴朴启动能力。"
+}
